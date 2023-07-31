@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -41,18 +42,26 @@ type UploadedFile struct {
 	FileSize         int64
 }
 
+// UploadOneFile is just a convenience method that calls UploadFiles, but expects only one file to
+// be in the upload.
 func (t *Tools) UploadOneFile(r *http.Request, uploadDir string, rename ...bool) (*UploadedFile, error) {
 	renameFile := true
 	if len(rename) > 0 {
 		renameFile = rename[0]
 	}
+
 	files, err := t.UploadFiles(r, uploadDir, renameFile)
 	if err != nil {
 		return nil, err
 	}
+
 	return files[0], nil
 }
 
+// UploadFiles uploads one or more file to a specified directory, and gives the files a random name.
+// It returns a slice containing the newly named files, the original file names, the size of the files,
+// and potentially an error. If the optional last parameter is set to true, then we will not rename
+// the files, but will use the original file names.
 func (t *Tools) UploadFiles(r *http.Request, uploadDir string, rename ...bool) ([]*UploadedFile, error) {
 	renameFile := true
 	if len(rename) > 0 {
@@ -69,6 +78,7 @@ func (t *Tools) UploadFiles(r *http.Request, uploadDir string, rename ...bool) (
 	if err != nil {
 		return nil, err
 	}
+
 	err = r.ParseMultipartForm(int64(t.MaxFileSize))
 	if err != nil {
 		return nil, errors.New("the uploaded file is too big")
@@ -118,6 +128,7 @@ func (t *Tools) UploadFiles(r *http.Request, uploadDir string, rename ...bool) (
 				} else {
 					uploadedFile.NewFileName = hdr.Filename
 				}
+
 				uploadedFile.OriginalFileName = hdr.Filename
 
 				var outfile *os.File
@@ -145,7 +156,7 @@ func (t *Tools) UploadFiles(r *http.Request, uploadDir string, rename ...bool) (
 	return uploadedFiles, nil
 }
 
-// CreateDirIfNotExist  create a directory, and all necessary parents, if it not exist
+// CreateDirIfNotExist creates a directory, and all necessary parents, if it does not exist
 func (t *Tools) CreateDirIfNotExist(path string) error {
 	const mode = 0755
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -157,16 +168,26 @@ func (t *Tools) CreateDirIfNotExist(path string) error {
 	return nil
 }
 
-// Slugfy is a (very) simple means of creating a slug from string
+// Slugify is a (very) simple means of creating a slug from a string
 func (t *Tools) Slugify(s string) (string, error) {
 	if s == "" {
-		return "", errors.New("emplty string not permitted")
+		return "", errors.New("empty string not permitted")
 	}
 
 	var re = regexp.MustCompile(`[^a-z\d]+`)
 	slug := strings.Trim(re.ReplaceAllString(strings.ToLower(s), "-"), "-")
 	if len(slug) == 0 {
-		return "", errors.New("after removing characters slug is zero lenght")
+		return "", errors.New("after removing characters, slug is zero length")
 	}
 	return slug, nil
+}
+
+// DownloadStaticFile downloads a file, and tries to force the browser to avoid displaying it
+// in the browser window by setting content disposition. It also allows specification of the
+// display name
+func (t *Tools) DownloadStaticFile(w http.ResponseWriter, r *http.Request, p, file, displayName string) {
+	fp := path.Join(p, file)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", displayName))
+
+	http.ServeFile(w, r, fp)
 }
